@@ -13,6 +13,7 @@
 #include "ptz-usb-cam.hpp"
 #include "ptz.h"
 #include "protocol-helpers.hpp"
+#include <QThread>
 
 #if defined(ENABLE_SERIALPORT)
 #include "ptz-visca-uart.hpp"
@@ -473,7 +474,24 @@ PTZDevice::PTZDevice(OBSData config) : QObject()
 	proc_handler_add(
 		handler, "void move()",
 		[](void *p, calldata *cd) {
-			QMetaObject::invokeMethod(static_cast<PTZDevice *>(p), "move", Q_ARG(calldata_t *, cd));
+			auto ptz = static_cast<PTZDevice *>(p);
+			double pan = 0.0, tilt = 0.0, zoom = 0.0, focus = 0.0;
+			bool has_pantilt =
+				calldata_get_float(cd, "pan", &pan) + calldata_get_float(cd, "tilt", &tilt);
+			bool has_zoom = calldata_get_float(cd, "zoom", &zoom);
+			bool has_focus = calldata_get_float(cd, "focus", &focus);
+			auto move = [ptz, has_pantilt, pan, tilt, has_zoom, zoom, has_focus, focus]() {
+				if (has_pantilt)
+					ptz->pantilt(pan, tilt);
+				if (has_zoom)
+					ptz->zoom(zoom);
+				if (has_focus)
+					ptz->focus(focus);
+			};
+			if (QThread::currentThread() == ptz->thread())
+				move();
+			else
+				QMetaObject::invokeMethod(ptz, move, Qt::BlockingQueuedConnection);
 		},
 		this);
 	proc_handler_add(
